@@ -174,7 +174,7 @@ func (s BulkService) createTableBulk(ctx context.Context, modelCode string, data
 		conn.Exec(ctx, fmt.Sprintf("ALTER TABLE %v ADD data_version_dupl boolean NOT NULL DEFAULT false;", tableNameNew))
 
 		// удаляем первичный ключ, т.к. во время батчинга он будет мешать. Вернем на место во время применения батча
-		if cn := s.getConstraintName(ctx, tableNameNew, []string{tableParams.pkColumn}); cn != "" {
+		if cn := GetConstraintName(ctx, conn, tableNameNew, []string{tableParams.pkColumn}); cn != "" {
 			conn.Exec(ctx, fmt.Sprintf("ALTER TABLE %v DROP CONSTRAINT %v;", tableNameNew, cn))
 		}
 
@@ -186,7 +186,7 @@ func (s BulkService) createTableBulk(ctx context.Context, modelCode string, data
 		// (на самом деле не случайным, но т.к. название constraint`а не должно превышать 64 символа название может быть обрезано
 		// самим движком базы данных. Можно конечно попытаться обрезать название также, как это делает движок БД, но нет гарантий,
 		// что этот алгоритм не изменится в новой версии БД)
-		originalUniqueConstraint := s.getConstraintName(conn, tableNameNew, tableParams.uniqueConstraint)
+		originalUniqueConstraint := GetConstraintName(ctx, conn, tableNameNew, []string{tableParams.pkColumn});
 		if originalUniqueConstraint != "" {
 			conn.Exec(ctx, fmt.Sprintf("ALTER INDEX %v RENAME TO %v;", originalUniqueConstraint, tableParams.uniqueConstraintNew(dataVersionId)))
 		}
@@ -757,48 +757,48 @@ func (s BulkService) getInsertQueryParams(items []interface{}, tableParam tableB
 
 // Возвращает название constraint по его колонкам.
 // Огранчение - если создано 2 и более constraint с одинаковыми колонками, то вернет один из constraint
-func (s BulkService) getConstraintName(ctx context.Context, tableName string, columnNames []string) string {
-	empty := ""
-	if len(columnNames) == 0 {
-		return empty
-	}
-
-	columnNamesQuoted := make([]string, len(columnNames))
-	for i, v := range columnNames {
-		columnNamesQuoted[i] = fmt.Sprintf("'%v'", v)
-	}
-
-	q := `SELECT kcu1.constraint_name
-		  FROM information_schema.key_column_usage as kcu1
-		  WHERE kcu1.table_name = '%v' AND kcu1.constraint_name IN (
-				SELECT DISTINCT kcu.constraint_name
-				FROM information_schema.key_column_usage as kcu
-				WHERE kcu.table_name = '%v' AND kcu.column_name IN (%v)
-		  )
-		  GROUP BY kcu1.constraint_name
-		  HAVING COUNT(kcu1.constraint_name) = %v`
-
-	query := fmt.Sprintf(q, tableName, tableName, strings.Join(columnNamesQuoted, ", "), len(columnNamesQuoted))
-
-	rows, err := db.Query(query)
-	defer rows.Close()
-	if err != nil {
-		return empty
-	}
-
-	for rows.Next() {
-		constraintName := ""
-
-		err := rows.Scan(&constraintName)
-		if err != nil {
-			return empty
-		}
-
-		return constraintName
-	}
-
-	return empty
-}
+//func (s BulkService) getConstraintName(ctx context.Context, tableName string, columnNames []string) string {
+//	empty := ""
+//	if len(columnNames) == 0 {
+//		return empty
+//	}
+//
+//	columnNamesQuoted := make([]string, len(columnNames))
+//	for i, v := range columnNames {
+//		columnNamesQuoted[i] = fmt.Sprintf("'%v'", v)
+//	}
+//
+//	q := `SELECT kcu1.constraint_name
+//		  FROM information_schema.key_column_usage as kcu1
+//		  WHERE kcu1.table_name = '%v' AND kcu1.constraint_name IN (
+//				SELECT DISTINCT kcu.constraint_name
+//				FROM information_schema.key_column_usage as kcu
+//				WHERE kcu.table_name = '%v' AND kcu.column_name IN (%v)
+//		  )
+//		  GROUP BY kcu1.constraint_name
+//		  HAVING COUNT(kcu1.constraint_name) = %v`
+//
+//	query := fmt.Sprintf(q, tableName, tableName, strings.Join(columnNamesQuoted, ", "), len(columnNamesQuoted))
+//
+//	rows, err := db.Query(query)
+//	defer rows.Close()
+//	if err != nil {
+//		return empty
+//	}
+//
+//	for rows.Next() {
+//		constraintName := ""
+//
+//		err := rows.Scan(&constraintName)
+//		if err != nil {
+//			return empty
+//		}
+//
+//		return constraintName
+//	}
+//
+//	return empty
+//}
 
 func isEmptyValue(v reflect.Value) bool {
 	switch v.Kind() {
