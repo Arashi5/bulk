@@ -1,0 +1,10 @@
+bin
+vendor
+.idea/
+.vscode/
+config.toml
+data/
+tmp/
+.DS_Store
+vendor/
+go.sum
