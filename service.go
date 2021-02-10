@@ -40,7 +40,7 @@ type BulkService struct {
 
 type Config struct {
 	Conn            DataBase
-	TableBulkParams []TableParam
+	TableBulkParams TableParam
 	ClearDelayHour  uint
 }
 
@@ -70,18 +70,13 @@ func NewBulkService(ctx context.Context, config Config) (*BulkService, error) {
 	}
 
 	hasher := md5.New()
-	for _, v := range config.TableBulkParams {
-		if len(v.UniqueConstraint) == 0 {
-			return nil, NewError(InvalidArgument, fmt.Sprint("empty UniqueConstraint in $s ", v.Name))
-		}
 
-		bulkService.tableParams[v.Name] = tableBulkParam{
-			tableName:        v.Name,
-			pkColumn:         v.PkColumn,
-			fields:           v.Fields,
-			uniqueConstraint: v.UniqueConstraint,
-			hasher:           hasher,
-		}
+	bulkService.tableParams[config.TableBulkParams.Name] = tableBulkParam{
+		tableName:        config.TableBulkParams.Name,
+		pkColumn:         config.TableBulkParams.PkColumn,
+		fields:           config.TableBulkParams.Fields,
+		uniqueConstraint: config.TableBulkParams.UniqueConstraint,
+		hasher:           hasher,
 	}
 
 	go bulkService.loop()
@@ -145,7 +140,7 @@ func (s BulkService) CreateDataVersion(ctx context.Context, modelCode string) (v
 func (s BulkService) createTableBulk(ctx context.Context, modelCode string, dataVersionId uint) (err error) {
 	conn, ctx, err := s.tx.Begin(ctx, s.conn)
 	if err != nil {
-		return  err
+		return err
 	}
 	defer conn.Release()
 
@@ -159,7 +154,7 @@ func (s BulkService) createTableBulk(ctx context.Context, modelCode string, data
 	tn, ctx := s.DBHasTable(ctx, tableNameNew)
 	tp, ctx := s.DBHasTable(ctx, tableParams.tableName)
 
-	if !tn && tp{
+	if !tn && tp {
 		// копируем таблицу со всеми индексами и constraint`ами и первичным ключем, исключая данные
 		conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %v (LIKE %v INCLUDING ALL);", tableNameNew, tableParams.tableName))
 
@@ -186,7 +181,7 @@ func (s BulkService) createTableBulk(ctx context.Context, modelCode string, data
 		// (на самом деле не случайным, но т.к. название constraint`а не должно превышать 64 символа название может быть обрезано
 		// самим движком базы данных. Можно конечно попытаться обрезать название также, как это делает движок БД, но нет гарантий,
 		// что этот алгоритм не изменится в новой версии БД)
-		originalUniqueConstraint := GetConstraintName(ctx, conn, tableNameNew, []string{tableParams.pkColumn});
+		originalUniqueConstraint := GetConstraintName(ctx, conn, tableNameNew, []string{tableParams.pkColumn})
 		if originalUniqueConstraint != "" {
 			conn.Exec(ctx, fmt.Sprintf("ALTER INDEX %v RENAME TO %v;", originalUniqueConstraint, tableParams.uniqueConstraintNew(dataVersionId)))
 		}

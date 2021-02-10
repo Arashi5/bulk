@@ -133,30 +133,23 @@ func TestNewBulkService(t *testing.T) {
 	src, err := bulk.NewBulkService(ctx, bulk.Config{
 		Conn: bulk.DataBase{
 			DataBaseName: "stms",
-			User: "postgres",
-			Password: "postgres",
-			Host: "localhost",
-			Port: 5432,
-			Secure: "disable",
+			User:         "postgres",
+			Password:     "postgres",
+			Host:         "localhost",
+			Port:         5432,
+			Secure:       "disable",
 		},
-		TableBulkParams:[]bulk.TableParam{
-					{
-						Name:     "city",
-						PkColumn: "city_id",
-						Fields: map[string]string{
-							"Name":       "name",
-							"RegionId":   "region_id",
-							"Comment":    "comment",
-							"DateCreate": "date_create",
-						},
-						UniqueConstraint: []string{"name"},
-					},
-					{
-						Name:             "region",
-						PkColumn:         "region_id",
-						UniqueConstraint: []string{"region_id"},
-					},
-				},
+		TableBulkParams: bulk.TableParam{
+			Name:     "city",
+			PkColumn: "city_id",
+			Fields: map[string]string{
+				"Name":       "name",
+				"RegionId":   "region_id",
+				"Comment":    "comment",
+				"DateCreate": "date_create",
+			},
+			UniqueConstraint: []string{"name"},
+		},
 	})
 	assert.NoError(t, err)
 	assert.NotEmpty(t, src)
