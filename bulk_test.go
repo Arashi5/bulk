@@ -161,7 +161,7 @@ func TestNewBulkService(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, src)
 
-	src.CreateDataVersion(ctx, 	[]string{"city", "region"})
+	src.CreateDataVersion(ctx, "region")
 }
 
 func TestBulkService_CreateDataVersion(t *testing.T) {

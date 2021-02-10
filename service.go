@@ -89,8 +89,7 @@ func NewBulkService(ctx context.Context, config Config) (*BulkService, error) {
 	return bulkService, nil
 }
 
-//CreateDataVersion: create table `data_version`, if it no exist. insert in `data_version` one row and return it`s id
-func (s BulkService) CreateDataVersion(ctx context.Context, modelCodes []string) (version *DataVersion, err error) {
+func (s BulkService) CreateDataVersion(ctx context.Context, modelCode string) (version *DataVersion, err error) {
 	conn, ctx, err := s.tx.Begin(ctx, s.conn)
 	if err != nil {
 		return nil, err
@@ -99,16 +98,11 @@ func (s BulkService) CreateDataVersion(ctx context.Context, modelCodes []string)
 
 	version = &DataVersion{}
 
-	if len(modelCodes) == 0 {
+	if modelCode == "" {
 		err = NewError(InvalidArgument, "Model codes are not specified")
 		return
 	}
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		tx.Rollback(ctx)
-		err = NewError(Unknown, err.Error())
-		return
-	}
+
 	ht, ctx := s.DBHasTable(ctx, "data_version")
 	if !ht {
 		ct := `
@@ -118,7 +112,7 @@ func (s BulkService) CreateDataVersion(ctx context.Context, modelCodes []string)
 				"time"          timestamp without time zone,
 				"delete"        boolean DEFAULT false
 			);`
-		_, err = tx.Exec(ctx, ct)
+		_, err = conn.Exec(ctx, ct)
 		if err != nil {
 			return
 		}
@@ -126,83 +120,89 @@ func (s BulkService) CreateDataVersion(ctx context.Context, modelCodes []string)
 
 	defer func() {
 		if r := recover(); r != nil {
-			tx.Rollback(ctx)
+			s.tx.Rollback(ctx)
 			err, _ = r.(error)
 		}
 	}()
 
-	//_, err = tx.Query(s.ctx, `INSERT INTO data_version (time) VALUES ($1) RETURNING data_version_id`, time.Now())
-	//if err != nil {
-	//	tx.Rollback(s.ctx)
-	//	return
-	//}
+	_, err = conn.Exec(ctx, `INSERT INTO data_version (time) VALUES ($1) RETURNING data_version_id`, time.Now())
+	if err != nil {
+		s.tx.Rollback(ctx)
+		return
+	}
 
-	//for _, modelCode := range modelCodes {
-	//	err = s.createTableBulk(tx, modelCode, uint(version.DataVersionId))
-	//	if err != nil {
-	//		tx.Rollback()
-	//		return
-	//	}
-	//}
-	tx.Commit(ctx)
+	err = s.createTableBulk(ctx, modelCode, uint(version.DataVersionId))
+	if err != nil {
+		s.tx.Rollback(ctx)
+		return
+	}
+
+	s.tx.Commit(ctx)
 
 	return
 }
 
-//func (s BulkService) createTableBulk(db *sql.Tx, modelCode string, dataVersionId uint) (err error) {
-//	tableParams := s.tableParams[modelCode]
-//	queryMaxRes := 0
-//
-//	tableNameNew := tableParams.tableNameNew(dataVersionId)
-//	sequenceNameNew := tableParams.sequenceNameNew(dataVersionId)
-//	sequenceForAlignmentName := tableParams.sequenceForAlignmentName(dataVersionId)
-//	sequenceVersionBulkName := tableParams.sequenceVersionBulkName(dataVersionId)
-//
-//	if !s.hasTable(db, tableNameNew) && s.hasTable(db, tableParams.tableName) {
-//
-//		// копируем таблицу со всеми индексами и constraint`ами и первичным ключем, исключая данные
-//		db.Exec(fmt.Sprintf("CREATE TABLE %v (LIKE %v INCLUDING ALL);", tableNameNew, tableParams.tableName))
-//
-//		// создаем сиквенсы, которые продолжатся с последнего ID + 1 из оригинальной таблицы
-//		db.QueryRow(fmt.Sprintf("SELECT MAX(%v) FROM %v;", tableParams.pkColumn, tableParams.tableName)).Scan(&queryMaxRes)
-//		db.Exec(fmt.Sprintf("CREATE SEQUENCE %v START %v;", sequenceNameNew, queryMaxRes+1))
-//		db.Exec(fmt.Sprintf("CREATE SEQUENCE %v START %v;", sequenceForAlignmentName, queryMaxRes+1))
-//		db.Exec(fmt.Sprintf("CREATE SEQUENCE %v;", sequenceVersionBulkName))
-//
-//		// добавляем колонку с номером пачки батча, пригодится чтобы возвращать добавленные/измененные записи
-//		db.Exec(fmt.Sprintf("ALTER TABLE %v ADD %v integer NULL;", tableNameNew, bulkVersionField))
-//		db.Exec(fmt.Sprintf("ALTER TABLE %v ADD data_version_dupl boolean NOT NULL DEFAULT false;", tableNameNew))
-//
-//		// удаляем первичный ключ, т.к. во время батчинга он будет мешать. Вернем на место во время применения батча
-//		if cn := s.getConstraintName(db, tableNameNew, []string{tableParams.pkColumn}); cn != "" {
-//			db.Exec(fmt.Sprintf("ALTER TABLE %v DROP CONSTRAINT %v;", tableNameNew, cn))
-//		}
-//
-//		// устанавливаем у таблицы новую сиквенс
-//		db.Exec(fmt.Sprintf("ALTER TABLE %v ALTER COLUMN %v SET DEFAULT nextval('%v')", tableNameNew, tableParams.pkColumn, sequenceNameNew))
-//		db.Exec(fmt.Sprintf("ALTER TABLE %v ALTER %v SET NOT NULL;", tableNameNew, tableParams.pkColumn))
-//
-//		// узнаем название constraint`а, т.к. при вызове CREATE TABLE ... LIKE название constraint`а было создано случайным образом
-//		// (на самом деле не случайным, но т.к. название constraint`а не должно превышать 64 символа название может быть обрезано
-//		// самим движком базы данных. Можно конечно попытаться обрезать название также, как это делает движок БД, но нет гарантий,
-//		// что этот алгоритм не изменится в новой версии БД)
-//		originalUniqueConstraint := s.getConstraintName(db, tableNameNew, tableParams.uniqueConstraint)
-//		if originalUniqueConstraint != "" {
-//			db.Exec(fmt.Sprintf("ALTER INDEX %v RENAME TO %v;", originalUniqueConstraint, tableParams.uniqueConstraintNew(dataVersionId)))
-//		}
-//	}
-//
-//	return err
-//}
+func (s BulkService) createTableBulk(ctx context.Context, modelCode string, dataVersionId uint) (err error) {
+	conn, ctx, err := s.tx.Begin(ctx, s.conn)
+	if err != nil {
+		return  err
+	}
+	defer conn.Release()
+
+	tableParams := s.tableParams[modelCode]
+	queryMaxRes := 0
+
+	tableNameNew := tableParams.tableNameNew(dataVersionId)
+	sequenceNameNew := tableParams.sequenceNameNew(dataVersionId)
+	sequenceForAlignmentName := tableParams.sequenceForAlignmentName(dataVersionId)
+	sequenceVersionBulkName := tableParams.sequenceVersionBulkName(dataVersionId)
+	tn, ctx := s.DBHasTable(ctx, tableNameNew)
+	tp, ctx := s.DBHasTable(ctx, tableParams.tableName)
+
+	if !tn && tp{
+		// копируем таблицу со всеми индексами и constraint`ами и первичным ключем, исключая данные
+		conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %v (LIKE %v INCLUDING ALL);", tableNameNew, tableParams.tableName))
+
+		// создаем сиквенсы, которые продолжатся с последнего ID + 1 из оригинальной таблицы
+		conn.QueryRow(ctx, fmt.Sprintf("SELECT MAX(%v) FROM %v;", tableParams.pkColumn, tableParams.tableName)).Scan(&queryMaxRes)
+		conn.Exec(ctx, fmt.Sprintf("CREATE SEQUENCE %v START %v;", sequenceNameNew, queryMaxRes+1))
+		conn.Exec(ctx, fmt.Sprintf("CREATE SEQUENCE %v START %v;", sequenceForAlignmentName, queryMaxRes+1))
+		conn.Exec(ctx, fmt.Sprintf("CREATE SEQUENCE %v;", sequenceVersionBulkName))
+
+		// добавляем колонку с номером пачки батча, пригодится чтобы возвращать добавленные/измененные записи
+		conn.Exec(ctx, fmt.Sprintf("ALTER TABLE %v ADD %v integer NULL;", tableNameNew, bulkVersionField))
+		conn.Exec(ctx, fmt.Sprintf("ALTER TABLE %v ADD data_version_dupl boolean NOT NULL DEFAULT false;", tableNameNew))
+
+		// удаляем первичный ключ, т.к. во время батчинга он будет мешать. Вернем на место во время применения батча
+		if cn := s.getConstraintName(ctx, tableNameNew, []string{tableParams.pkColumn}); cn != "" {
+			conn.Exec(ctx, fmt.Sprintf("ALTER TABLE %v DROP CONSTRAINT %v;", tableNameNew, cn))
+		}
+
+		// устанавливаем у таблицы новую сиквенс
+		conn.Exec(ctx, fmt.Sprintf("ALTER TABLE %v ALTER COLUMN %v SET DEFAULT nextval('%v')", tableNameNew, tableParams.pkColumn, sequenceNameNew))
+		conn.Exec(ctx, fmt.Sprintf("ALTER TABLE %v ALTER %v SET NOT NULL;", tableNameNew, tableParams.pkColumn))
+
+		// узнаем название constraint`а, т.к. при вызове CREATE TABLE ... LIKE название constraint`а было создано случайным образом
+		// (на самом деле не случайным, но т.к. название constraint`а не должно превышать 64 символа название может быть обрезано
+		// самим движком базы данных. Можно конечно попытаться обрезать название также, как это делает движок БД, но нет гарантий,
+		// что этот алгоритм не изменится в новой версии БД)
+		originalUniqueConstraint := s.getConstraintName(conn, tableNameNew, tableParams.uniqueConstraint)
+		if originalUniqueConstraint != "" {
+			conn.Exec(ctx, fmt.Sprintf("ALTER INDEX %v RENAME TO %v;", originalUniqueConstraint, tableParams.uniqueConstraintNew(dataVersionId)))
+		}
+	}
+
+	return err
+}
 
 func (s BulkService) DBHasTable(ctx context.Context, tableName string) (bool, context.Context) {
 	conn, ctx, err := s.tx.Begin(ctx, s.conn)
 	if err != nil {
 		return false, ctx
 	}
-	defer conn.Release()
 
 	r := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1)`, tableName)
+
 	var result bool
 	err = r.Scan(&result)
 	if err != nil {
@@ -757,7 +757,7 @@ func (s BulkService) getInsertQueryParams(items []interface{}, tableParam tableB
 
 // Возвращает название constraint по его колонкам.
 // Огранчение - если создано 2 и более constraint с одинаковыми колонками, то вернет один из constraint
-func (s BulkService) getConstraintName(db resource, tableName string, columnNames []string) string {
+func (s BulkService) getConstraintName(ctx context.Context, tableName string, columnNames []string) string {
 	empty := ""
 	if len(columnNames) == 0 {
 		return empty
