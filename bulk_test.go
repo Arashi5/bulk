@@ -16,6 +16,61 @@ type City struct {
 	DateCreate time.Time `jsom:"date_create"`
 }
 
+var cities = []*City{
+	{
+		Name:       "test1",
+		RegionId:   3,
+		Comment:    "test",
+		DateCreate: time.Now(),
+	},
+	{
+		Name:       "test2",
+		RegionId:   3,
+		Comment:    "test",
+		DateCreate: time.Now(),
+	},
+	{
+		Name:       "test3",
+		RegionId:   3,
+		Comment:    "test",
+		DateCreate: time.Now(),
+	},
+	{
+		Name:     "test4",
+		RegionId: 3,
+		Comment:  "test",
+	},
+	{
+		Name:       "test5",
+		RegionId:   3,
+		DateCreate: time.Now(),
+	},
+	{
+		Name:       "test6",
+		RegionId:   3,
+		Comment:    "test",
+		DateCreate: time.Now(),
+	},
+	{
+		Name:       "test7",
+		RegionId:   3,
+		Comment:    "test",
+		DateCreate: time.Now(),
+	},
+	{
+		Name:       "test8",
+		RegionId:   3,
+		Comment:    "test",
+		DateCreate: time.Now(),
+	},
+	{
+		Name:       "test9",
+		RegionId:   3,
+		Comment:    "test",
+		DateCreate: time.Now(),
+	},
+}
+
 //
 //func TestTest1(t *testing.T) {
 //
@@ -129,12 +184,12 @@ type City struct {
 //}
 
 func TestNewBulkService(t *testing.T) {
-	ctx := context.Background()
+ 	ctx := context.Background()
 	src, err := bulk.NewBulkService(ctx, bulk.Config{
 		Conn: bulk.DataBase{
-			DataBaseName: "stms",
+			DataBaseName: "bulk",
 			User:         "postgres",
-			Password:     "postgres",
+			Password:     "123456",
 			Host:         "localhost",
 			Port:         5432,
 			Secure:       "disable",
@@ -154,7 +209,14 @@ func TestNewBulkService(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, src)
 
-	src.CreateDataVersion(ctx, "region")
+	dv, err := src.CreateDataVersion(ctx, "city")
+	assert.NoError(t, err)
+
+	models := make([]interface{}, 0)
+	for _, v := range cities {
+		models = append(models, v)
+	}
+	src.InsertDataVersion(ctx, uint(dv.DataVersionId), models, "city")
 }
 
 func TestBulkService_CreateDataVersion(t *testing.T) {

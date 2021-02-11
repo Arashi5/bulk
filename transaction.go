@@ -54,8 +54,8 @@ func (t *transaction) Rollback(ctx context.Context) (context.Context, error) {
 		return nil, errors.New("there is no connection to Postgres")
 	}
 
-	conn := ctx.Value(Tx).(pgx.Tx)
-	if err := conn.Rollback(ctx); err != nil {
+	tx := ctx.Value(Tx).(pgx.Tx)
+	if err := tx.Rollback(ctx); err != nil {
 		return nil, err
 	}
 

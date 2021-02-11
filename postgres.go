@@ -3,6 +3,7 @@ package bulk
 import (
 	"context"
 	"fmt"
+	"github.com/jackc/pgx/v4"
 	"strings"
 
 	"github.com/jackc/pgx/v4/pgxpool"
@@ -62,7 +63,7 @@ func GetMasterConnPool(ctx context.Context, c *Connection) (*pgxpool.Pool, error
 
 // Возвращает название constraint по его колонкам.
 // Огранчение - если создано 2 и более constraint с одинаковыми колонками, то вернет один из constraint
-func GetConstraintName(ctx context.Context, conn *pgxpool.Conn, tableName string, columnNames []string) string {
+func GetConstraintName(ctx context.Context, conn pgx.Tx, tableName string, columnNames []string) string {
 	empty := ""
 	if len(columnNames) == 0 {
 		return empty
